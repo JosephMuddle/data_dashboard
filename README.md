@@ -2,7 +2,7 @@
 
 This project is an interactive web dashboard built with Python and Dash that allows users to scrape and analyze the sentiment of posts from Reddit in near real-time.
 
-![Dashboard Screenshot](https://imgur.com/a/61DKqEP) <!-- It would be great to get a screenshot from the user to put here! -->
+![Dashboard Screenshot](https://i.imgur.com/mK9qOUd.png) <!-- It would be great to get a screenshot from the user to put here! -->
 
 ---
 
