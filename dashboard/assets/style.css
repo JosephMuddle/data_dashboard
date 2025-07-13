@@ -1,0 +1,35 @@
+/* Fix for Dropdown menu text color */
+.dropdown-fix .Select-menu-outer {
+    color: #333; /* A dark grey for readability */
+}
+
+/* --- Uniform Control Styling --- */
+/* A single class to rule them all */
+.uniform-control {
+    width: 100% !important;
+    height: 30px !important;
+    margin-bottom: 5px !important; /* Reduced spacing */
+    box-sizing: border-box !important;
+    vertical-align: top;
+}
+
+/* Specific override for the main dropdown container */
+.Select.uniform-control {
+    margin-bottom: 20px !important; /* Increased margin to prevent overlap */
+}
+
+/* Style the dropdown's inner control */
+.Select-control {
+    height: 44px !important;
+    border-radius: 5px !important;
+}
+
+/* Center the text vertically in the dropdown */
+.Select-value, .Select-placeholder {
+    line-height: 44px !important;
+}
+
+/* Adjust the dropdown arrow position */
+.Select-arrow {
+    top: 17px !important;
+} 

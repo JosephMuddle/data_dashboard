@@ -17,15 +17,16 @@ def init_reddit():
                              client_secret=client_secret,
                              user_agent=user_agent)
         reddit.user.me() # Check if credentials are valid
+        print("PRAW credentials loaded successfully.")
         return reddit
     except Exception as e:
         print(f"Failed to initialize PRAW: {e}")
         return None
 
-def scrape_and_analyze(keyword, time_filter='week', limit=100):
+def scrape_and_analyze(keyword, time_filter='week', limit=100, analyze_comments=False, subreddits='all'):
     """
-    Scrapes Reddit for a keyword, analyzes sentiment, and returns a DataFrame
-    with a single, score-weighted sentiment value per post.
+    Scrapes Reddit for a keyword from specified subreddits, analyzes sentiment, 
+    and returns a DataFrame with a single, score-weighted sentiment value per post.
     """
     reddit = init_reddit()
     if not reddit:
@@ -34,21 +35,31 @@ def scrape_and_analyze(keyword, time_filter='week', limit=100):
 
     analyzer = SentimentIntensityAnalyzer()
 
+    # Format subreddits for PRAW
+    if not subreddits or subreddits.isspace():
+        subreddit_query = 'all'
+    else:
+        # Split by comma, strip whitespace, filter out empty strings, join with '+'
+        subreddit_list = [sub.strip() for sub in subreddits.split(',') if sub.strip()]
+        subreddit_query = '+'.join(subreddit_list) if subreddit_list else 'all'
+
     # Get data from Reddit
-    subreddit = reddit.subreddit('all')
+    print(f"Querying subreddits: r/{subreddit_query}")
+    subreddit = reddit.subreddit(subreddit_query)
     posts_data = []
 
     for post in subreddit.search(keyword, limit=limit, time_filter=time_filter):
-        # We need both the comment body and its score for weighting
         comments_with_scores = []
-        post.comment_sort = 'top' # Sort comments by score (highest first)
-        post.comments.replace_more(limit=0)
-        
-        comment_count = 0
-        for comment in post.comments.list()[:3]:
-            if not isinstance(comment, MoreComments):
-                comments_with_scores.append({'body': comment.body, 'score': comment.score})
-                comment_count += 1
+        if analyze_comments:
+            # We need both the comment body and its score for weighting
+            post.comment_sort = 'top' # Sort comments by score (highest first)
+            post.comments.replace_more(limit=0)
+            
+            comment_count = 0
+            for comment in post.comments.list()[:3]:
+                if not isinstance(comment, MoreComments):
+                    comments_with_scores.append({'body': comment.body, 'score': comment.score})
+                    comment_count += 1
         
         posts_data.append({
             'id': post.id,

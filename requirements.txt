@@ -1,6 +1,7 @@
 dash
-plotly
 pandas
+plotly
+numpy
 praw
 vaderSentiment
 python-dotenv 
