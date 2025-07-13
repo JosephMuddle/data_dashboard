@@ -1,14 +1,6 @@
-# Environment variables
-.env
-
-# Python
-__pycache__/
 *.pyc
-*.pyo
-*.pyd
-.Python
-env/
-venv/
-
-# Data files
+__pycache__/
+.env
+*.db
+callback_cache/
 *.csv 

@@ -6,6 +6,7 @@ import sys
 import os
 import plotly.graph_objects as go
 import numpy as np
+import io
 
 # Add the parent directory to the path to allow importing from the scraper module
 sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
@@ -46,6 +47,15 @@ app.layout = html.Div(children=[
         html.Button('Scrape Data', id='submit-button', n_clicks=0),
     ], style={'display': 'flex', 'alignItems': 'center', 'padding': '20px 0'}),
     
+    html.Div([
+        html.Label('EMA Periods (posts):', style={'fontWeight': 'bold', 'marginRight': '10px'}),
+        dcc.Input(id='ema-1-input', type='number', value=10, min=2, step=1, style={'width': '80px', 'marginRight': '5px'}),
+        dcc.Input(id='ema-2-input', type='number', value=20, min=2, step=1, style={'width': '80px', 'marginRight': '5px'}),
+        dcc.Input(id='ema-3-input', type='number', value=50, min=2, step=1, style={'width': '80px'})
+    ], style={'padding': '0 0 20px 0', 'display': 'flex', 'alignItems': 'center'}),
+
+    html.Div(id='status-output'), # To display the scraping status
+
     dcc.Loading(
         id="loading-spinner",
         type="circle",
@@ -54,6 +64,17 @@ app.layout = html.Div(children=[
 
     dcc.Store(id='scraped-data-store')
 ])
+
+@app.callback(
+    Output('status-output', 'children'),
+    Input('submit-button', 'n_clicks'),
+    State('keyword-input', 'value'),
+    State('timefilter-dropdown', 'value'),
+    State('limit-input', 'value'),
+    prevent_initial_call=True
+)
+def update_status(n_clicks, keyword, time_filter, limit):
+    return f"Request received. Scraping up to {limit} posts for '{keyword}' with time filter '{time_filter}'..."
 
 @app.callback(
     Output('scraped-data-store', 'data'),
@@ -80,26 +101,28 @@ def scrape_and_store_data(n_clicks, keyword, time_filter, limit):
 
 @app.callback(
     Output('sentiment-over-time-graph', 'figure'),
-    Input('scraped-data-store', 'data')
+    Input('scraped-data-store', 'data'),
+    Input('ema-1-input', 'value'),
+    Input('ema-2-input', 'value'),
+    Input('ema-3-input', 'value')
 )
-def update_graph(stored_data):
+def update_graph(stored_data, ema_p1, ema_p2, ema_p3):
     if stored_data is None:
         return go.Figure(layout={'title': 'Please scrape data to see results'})
 
     keyword = stored_data['keyword']
-    df = pd.read_json(stored_data['df_json'], orient='split')
+    json_data = stored_data['df_json']
+    df = pd.read_json(io.StringIO(json_data), orient='split')
     
-    if not df.empty and 'weighted_sentiment' in df.columns:
+    if df.empty:
+        return go.Figure(layout={'title': f'No data found for "{keyword}". Try other parameters.'})
+
+    if 'weighted_sentiment' in df.columns:
         df['created_utc'] = pd.to_datetime(df['created_utc'])
 
-        # --- Moving Average Calculation (based on number of posts) ---
-        # The 'span' now controls the average over the last N posts, not days.
-        # This makes the EMA lines more reactive to the actual data.
-        moving_average_spans = {
-            '3-Post EMA': 3,
-            '5-Post EMA': 5,
-            '10-Post EMA': 10
-        }
+        # --- Dynamic Moving Average Calculation ---
+        periods = [p for p in [ema_p1, ema_p2, ema_p3] if p is not None and p > 1]
+        moving_average_spans = {f'{p}-Post EMA': p for p in sorted(list(set(periods)))}
         
         for name, span in moving_average_spans.items():
             df[name] = df['weighted_sentiment'].ewm(span=span, adjust=False).mean()
