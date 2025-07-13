@@ -1,89 +1,108 @@
-import praw
 import pandas as pd
+import praw
 from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer
 import os
 from dotenv import load_dotenv
 from praw.models import MoreComments
 
-load_dotenv()
-
-# Reddit API credentials
-CLIENT_ID = os.getenv("REDDIT_CLIENT_ID")
-CLIENT_SECRET = os.getenv("REDDIT_CLIENT_SECRET")
-USER_AGENT = os.getenv("REDDIT_USER_AGENT")
-
-# Initialize PRAW
-reddit = praw.Reddit(client_id=CLIENT_ID,
-                     client_secret=CLIENT_SECRET,
-                     user_agent=USER_AGENT)
-
-analyzer = SentimentIntensityAnalyzer()
-
-def get_reddit_data(keyword, subreddit_name='all', limit=100, time_filter='week'):
-    """
-    Scrapes data from a specified subreddit for a given keyword.
-    """
-    subreddit = reddit.subreddit(subreddit_name)
-    posts_data = []
+def init_reddit():
+    """Initializes and returns a PRAW instance."""
+    load_dotenv()
+    client_id = os.getenv("REDDIT_CLIENT_ID")
+    client_secret = os.getenv("REDDIT_CLIENT_SECRET")
+    user_agent = os.getenv("REDDIT_USER_AGENT")
     
+    try:
+        reddit = praw.Reddit(client_id=client_id,
+                             client_secret=client_secret,
+                             user_agent=user_agent)
+        reddit.user.me() # Check if credentials are valid
+        return reddit
+    except Exception as e:
+        print(f"Failed to initialize PRAW: {e}")
+        return None
+
+def scrape_and_analyze(keyword, time_filter='week', limit=100):
+    """
+    Scrapes Reddit for a keyword, analyzes sentiment, and returns a DataFrame
+    with a single, score-weighted sentiment value per post.
+    """
+    reddit = init_reddit()
+    if not reddit:
+        print("Reddit connection not available.")
+        return pd.DataFrame()
+
+    analyzer = SentimentIntensityAnalyzer()
+
+    # Get data from Reddit
+    subreddit = reddit.subreddit('all')
+    posts_data = []
+
     for post in subreddit.search(keyword, limit=limit, time_filter=time_filter):
-        # Get comments, sorted by oldest first
-        post.comment_sort = 'old'
+        # We need both the comment body and its score for weighting
+        comments_with_scores = []
+        post.comment_sort = 'top' # Sort comments by score (highest first)
         post.comments.replace_more(limit=0)
-        comments = []
-        for comment in post.comments.list():
+        
+        comment_count = 0
+        for comment in post.comments.list()[:3]:
             if not isinstance(comment, MoreComments):
-                comments.append(comment.body)
+                comments_with_scores.append({'body': comment.body, 'score': comment.score})
+                comment_count += 1
         
         posts_data.append({
             'id': post.id,
             'title': post.title,
-            'score': post.score,
+            'score': post.score, # This is the title's score
             'url': post.url,
             'created_utc': post.created_utc,
             'selftext': post.selftext,
-            'comments': comments
+            'comments': comments_with_scores # List of dicts
         })
+    
+    df = pd.DataFrame(posts_data)
+    if df.empty:
+        return df
+
+    df['created_utc'] = pd.to_datetime(df['created_utc'], unit='s')
+
+    # --- New Weighted Sentiment Calculation ---
+    def calculate_weighted_sentiment(row):
+        # Title's contribution
+        title_sentiment = analyzer.polarity_scores(row['title'])['compound']
+        # Add 1 to score to avoid multiplying by zero, but keep the sign
+        title_weight = row['score'] if row['score'] != 0 else 1
+
+        total_sentiment_weight = title_sentiment * title_weight
+        total_weight = title_weight
         
-    return pd.DataFrame(posts_data)
+        # Comments' contribution
+        for comment in row['comments']:
+            comment_sentiment = analyzer.polarity_scores(comment['body'])['compound']
+            comment_weight = comment['score'] if comment['score'] != 0 else 1
+            total_sentiment_weight += comment_sentiment * comment_weight
+            total_weight += comment_weight
+            
+        if total_weight == 0:
+            return title_sentiment # Fallback to title sentiment if no scores
+        
+        return total_sentiment_weight / total_weight
 
-def analyze_sentiment(df):
-    """
-    Analyzes the sentiment of post titles and comments.
-    """
-    df['title_sentiment'] = df['title'].apply(lambda title: analyzer.polarity_scores(title)['compound'])
-    df['selftext_sentiment'] = df['selftext'].apply(lambda text: analyzer.polarity_scores(text)['compound'])
+    df['weighted_sentiment'] = df.apply(calculate_weighted_sentiment, axis=1)
     
-    def analyze_comment_sentiments(comments):
-        if not comments:
-            return None
-        sentiment_scores = [analyzer.polarity_scores(comment)['compound'] for comment in comments]
-        return sum(sentiment_scores) / len(sentiment_scores)
-
-    df['average_comment_sentiment'] = df['comments'].apply(analyze_comment_sentiments)
-    
-    return df
+    return df.sort_values(by='created_utc', ascending=True)
 
 if __name__ == '__main__':
-    keyword_to_search = "gamestop" # Example keyword
-    time_filter_to_apply = 'week' # Can be 'all', 'day', 'hour', 'month', 'week', 'year'
-    limit_to_apply = 1000
+    # Example of how to run the scraper module directly for testing
+    print("Testing scraper module...")
+    keyword_to_search = "tesla"
+    results_df = scrape_and_analyze(keyword_to_search, time_filter='day')
     
-    # Get data from Reddit
-    print(f"Scraping data for '{keyword_to_search}' from the last '{time_filter_to_apply}'...")
-    reddit_df = get_reddit_data(keyword_to_search, time_filter=time_filter_to_apply, limit=limit_to_apply)
-    
-    if not reddit_df.empty:
-        # Analyze sentiment
-        print("Analyzing sentiment...")
-        sentiment_df = analyze_sentiment(reddit_df.copy())
-        
-        # Sort data by post creation time (oldest first)
-        sentiment_df = sentiment_df.sort_values(by='created_utc', ascending=True)
-
-        # Save to CSV
-        output_filename = f"{keyword_to_search}_sentiment.csv"
-        sentiment_df.to_csv(output_filename, index=False)
-        print(f"Data saved to {output_filename}")
+    if not results_df.empty:
+        print(f"Successfully scraped {len(results_df)} posts for '{keyword_to_search}'.")
+        # Save to CSV for inspection
+        output_filename = f"{keyword_to_search}_sentiment_test.csv"
+        results_df.to_csv(output_filename, index=False)
+        print(f"Test data saved to {output_filename}")
     else:
-        print(f"No data found for keyword: {keyword_to_search}") 
+        print(f"No test data found for keyword: {keyword_to_search}") 
